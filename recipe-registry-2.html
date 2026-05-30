@@ -435,7 +435,7 @@ Respond ONLY in this exact JSON (no markdown, no extra text):
 
 If no recipe found: {"error":"No recipe found"}`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages",{
+  const res = await fetch("https://recipe-book.troymd123.workers.dev/",{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
       messages:[{role:"user",content:prompt}]})
@@ -563,7 +563,7 @@ If no recipe is visible in any image: {"error":"No recipe found in images"}`;
     { type:"text", text: prompt }
   ];
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("https://recipe-book.troymd123.workers.dev/", {
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
