@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="theme-color" content="#F7F4EF"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="Recipes"/>
+<title>Recipe Registry</title>
+
+<!-- PWA manifest inline -->
+<script>
+const manifest = {
+  name: "Recipe Registry",
+  short_name: "Recipes",
+  start_url: ".",
+  display: "standalone",
+  background_color: "#F7F4EF",
+  theme_color: "#F7F4EF",
+  icons: [{
+    src: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23C4501A'/><text y='.9em' font-size='72' x='50%' text-anchor='middle'>🍽</text></svg>",
+    sizes: "any", type: "image/svg+xml"
+  }]
+};
+const blob = new Blob([JSON.stringify(manifest)], {type:"application/json"});
+const url  = URL.createObjectURL(blob);
+const link = document.createElement("link");
+link.rel = "manifest"; link.href = url;
+document.head.appendChild(link);
+</script>
+
+<!-- Apple touch icon -->
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23C4501A'/><text y='.9em' font-size='72' x='50%' text-anchor='middle'>🍽</text></svg>"/>
+
+<!-- SheetJS for xlsx export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  :root{
+    --bg:#F7F4EF;--paper:#FDFCFA;--ink:#1C1A16;--muted:#8A8478;
+    --faint:#E4E0D8;--rule:#D4CFCA;--food:#C4501A;--bev:#2A6B8A;
+    --red:#B83030;--food-bg:#FDF0EC;--bev-bg:#EBF4F8;--yellow:#B07818;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bot: env(safe-area-inset-bottom, 0px);
+  }
+  html,body{height:100%;background:var(--bg);color:var(--ink);
+    font-family:'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;
+    -webkit-font-smoothing:antialiased;}
+  #app{height:100%;display:flex;flex-direction:column;}
+
+  /* scrollbars */
+  ::-webkit-scrollbar{width:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--rule);border-radius:2px}
+
+  /* top bar */
+  #topbar{
+    background:var(--paper);border-bottom:1px solid var(--rule);
+    padding: calc(var(--safe-top) + 12px) 20px 12px;
+    display:flex;align-items:center;justify-content:space-between;
+    flex-shrink:0;position:sticky;top:0;z-index:50;
+  }
+  #topbar h1{font-size:17px;font-weight:500;letter-spacing:-.01em}
+  #topbar .count{font-size:11px;color:var(--muted);font-family:monospace;margin-left:8px}
+
+  /* main scroll area */
+  #main{flex:1;overflow-y:auto;padding:20px 16px calc(var(--safe-bot) + 20px);}
+  .max{max-width:640px;margin:0 auto;}
+
+  /* stats strip */
+  .stats{display:flex;gap:10px;margin-bottom:20px}
+  .stat{background:var(--paper);border:1px solid var(--rule);border-radius:8px;
+    padding:12px;flex:1;text-align:center}
+  .stat-val{font-size:24px;font-weight:300;line-height:1}
+  .stat-lbl{font-size:10px;color:var(--muted);font-family:monospace;
+    letter-spacing:.08em;text-transform:uppercase;margin-top:3px}
+
+  /* card */
+  .card{background:var(--paper);border:1px solid var(--rule);border-radius:10px;
+    padding:20px;margin-bottom:16px}
+  .section-label{font-size:10px;font-family:monospace;letter-spacing:.14em;
+    color:var(--muted);text-transform:uppercase;margin-bottom:14px}
+
+  /* category toggle */
+  .cat-toggle{display:flex;border:1px solid var(--rule);border-radius:6px;
+    overflow:hidden;width:fit-content;margin-bottom:14px}
+  .cat-btn{padding:8px 18px;font-size:13px;font-family:inherit;border:none;
+    cursor:pointer;transition:background .15s,color .15s;background:var(--paper);color:var(--muted)}
+  .cat-btn.active-food{background:var(--food);color:#fff;font-weight:600}
+  .cat-btn.active-bev{background:var(--bev);color:#fff;font-weight:600}
+
+  /* inputs */
+  input,textarea{
+    width:100%;background:var(--bg);border:1.5px solid var(--rule);border-radius:6px;
+    padding:11px 13px;color:var(--ink);font-size:14px;font-family:inherit;
+    outline:none;transition:border-color .2s;
+  }
+  input:focus,textarea:focus{border-color:var(--food)}
+  textarea{resize:vertical;min-height:90px}
+  .input-row{display:flex;gap:10px;align-items:stretch}
+  .input-row input{flex:1}
+
+  /* name field */
+  .name-field{margin-bottom:10px}
+  .name-field label{display:block;font-size:11px;font-family:monospace;
+    color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+
+  /* buttons */
+  .btn{display:inline-flex;align-items:center;gap:7px;border:none;border-radius:6px;
+    padding:10px 18px;font-size:13px;font-family:inherit;font-weight:600;
+    cursor:pointer;transition:background .15s,opacity .15s;white-space:nowrap}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn-food{background:var(--food);color:#fff}
+  .btn-bev{background:var(--bev);color:#fff}
+  .btn-ghost{background:none;border:1px solid var(--rule);color:var(--muted)}
+  .btn-text{background:none;border:none;color:var(--muted);padding:10px 10px}
+  .btn-danger{background:none;border:1px solid var(--rule);color:var(--red)}
+  .btn-sm{padding:7px 14px;font-size:12px}
+  .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+  /* error */
+  .err{font-size:12px;color:var(--red);font-family:monospace;margin-top:8px}
+
+  /* manual panel */
+  .manual-panel{margin-top:14px;padding:14px;background:var(--bg);
+    border-radius:7px;border:1px dashed var(--rule)}
+  .manual-panel p{font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.5}
+
+  /* filter bar */
+  .filter-bar{display:flex;gap:10px;margin-bottom:14px;align-items:center}
+  .filter-toggle{display:flex;border:1px solid var(--rule);border-radius:6px;overflow:hidden}
+  .filter-btn{padding:7px 14px;font-size:11px;font-family:monospace;letter-spacing:.06em;
+    border:none;cursor:pointer;background:var(--paper);color:var(--muted);transition:background .15s}
+  .filter-btn.on{background:var(--ink);color:#fff}
+  .filter-bar input{flex:1;padding:7px 11px;font-size:13px}
+
+  /* recipe list */
+  .recipe-row{background:var(--paper);border:1px solid var(--rule);border-radius:8px;
+    padding:14px 16px;margin-bottom:8px;cursor:pointer;
+    display:flex;align-items:center;gap:12;
+    transition:box-shadow .15s;-webkit-user-select:none;user-select:none;}
+  .recipe-row:active{opacity:.85}
+  .recipe-row .left{flex:1;min-width:0}
+  .recipe-row .arrow{color:var(--muted);font-size:18px;flex-shrink:0;padding-left:8px}
+  .recipe-row .rname{font-size:15px;color:var(--ink);white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;margin:3px 0}
+  .recipe-row .rmeta{font-size:11px;color:var(--muted);font-family:monospace}
+  .recipe-row .rlink{font-size:11px;color:var(--bev);font-family:monospace;
+    display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    margin-top:2px;text-decoration:none}
+
+  /* pill */
+  .pill{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;font-family:monospace;padding:2px 7px;border-radius:3px}
+  .pill-food{background:var(--food-bg);color:var(--food);border:1px solid #E8C0B0}
+  .pill-bev{background:var(--bev-bg);color:var(--bev);border:1px solid #B0D0E0}
+  .pill-row{display:flex;align-items:center;gap:8px;margin-bottom:3px}
+
+  /* empty state */
+  .empty{text-align:center;padding:60px 0;color:var(--muted)}
+  .empty .icon{font-size:36px;margin-bottom:12px}
+  .empty p{font-size:15px;line-height:1.7}
+
+  /* drawer overlay */
+  #overlay{position:fixed;inset:0;background:rgba(28,26,22,.55);
+    backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+    z-index:200;display:none}
+  #overlay.open{display:flex;justify-content:flex-end}
+
+  /* drawer panel */
+  #drawer{
+    width:min(520px,100vw);background:var(--paper);height:100%;
+    overflow-y:auto;box-shadow:-4px 0 40px rgba(0,0,0,.18);
+    padding: calc(var(--safe-top) + 28px) 26px calc(var(--safe-bot) + 28px);
+    transform:translateX(100%);transition:transform .25s ease;
+  }
+  #overlay.open #drawer{transform:translateX(0)}
+  .drawer-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px}
+  .drawer-title{font-size:24px;font-weight:400;color:var(--ink);margin:0 0 8px;line-height:1.2}
+  .drawer-link-row{margin-bottom:16px}
+  .drawer-link{font-size:13px;color:var(--bev);font-family:monospace;
+    text-decoration:none;border-bottom:1px solid var(--bev);padding-bottom:1px}
+  .drawer-url{font-size:10px;color:var(--muted);font-family:monospace;
+    word-break:break-all;margin-top:4px}
+  .drawer-hr{border:none;border-top:1px solid var(--rule);margin:18px 0}
+  .drawer-section{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:10px;font-family:monospace}
+  .ing-list{list-style:none;margin-bottom:20px}
+  .ing-list li{font-size:15px;padding:6px 0;border-bottom:1px solid var(--faint);
+    display:flex;gap:10px;align-items:baseline}
+  .ing-list li .dot{color:var(--muted);font-family:monospace;font-size:11px;flex-shrink:0}
+  .dir-list{list-style:none;margin-bottom:20px}
+  .dir-list li{font-size:15px;padding:8px 0;border-bottom:1px solid var(--faint);
+    display:flex;gap:10px;align-items:baseline}
+  .dir-list li .num{color:var(--food);font-family:monospace;font-size:12px;
+    font-weight:700;flex-shrink:0}
+  .notes-text{font-size:14px;color:var(--muted);line-height:1.7;margin-bottom:20px}
+  .link-only-box{background:var(--bg);border:1px dashed var(--rule);border-radius:7px;
+    padding:20px;text-align:center;color:var(--muted)}
+  .link-only-box .icon{font-size:24px;margin-bottom:8px}
+  .link-only-box p{font-size:13px;line-height:1.6}
+
+  /* install banner */
+  #install-bar{background:var(--food);color:#fff;text-align:center;
+    padding:10px 16px;font-size:13px;display:none;
+    padding-bottom:calc(10px + var(--safe-bot));cursor:pointer}
+
+  /* source tabs */
+  .src-tabs{display:flex;border-bottom:1px solid var(--rule);margin:-20px -20px 18px;padding:0 20px}
+  .src-tab{padding:10px 16px;font-size:12px;font-family:monospace;letter-spacing:.06em;
+    text-transform:uppercase;border:none;background:none;color:var(--muted);
+    cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s}
+  .src-tab.on{color:var(--food);border-bottom-color:var(--food);font-weight:700}
+
+  /* photo drop zone */
+  .drop-zone{border:2px dashed var(--rule);border-radius:8px;padding:24px 16px;
+    text-align:center;cursor:pointer;transition:border-color .2s,background .2s;
+    position:relative;margin-bottom:10px}
+  .drop-zone:hover,.drop-zone.over{border-color:var(--food);background:var(--food-bg)}
+  .drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+  .drop-zone .dz-icon{font-size:28px;margin-bottom:6px}
+  .drop-zone .dz-label{font-size:13px;color:var(--muted);line-height:1.5}
+  .drop-zone .dz-sub{font-size:11px;color:var(--muted);margin-top:3px;font-family:monospace}
+
+  /* multi-photo thumbnail strip */
+  .photo-strip{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .photo-thumb{position:relative;width:80px;height:80px;flex-shrink:0}
+  .photo-thumb img{width:100%;height:100%;object-fit:cover;border-radius:6px;display:block;
+    border:1.5px solid var(--rule)}
+  .photo-thumb .thumb-remove{position:absolute;top:-6px;right:-6px;background:var(--ink);
+    color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:12px;
+    cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;
+    box-shadow:0 1px 4px rgba(0,0,0,.3)}
+  .photo-thumb .thumb-num{position:absolute;bottom:3px;left:4px;font-size:9px;
+    font-family:monospace;color:#fff;background:rgba(0,0,0,.5);padding:1px 4px;border-radius:2px}
+  .add-more-btn{width:80px;height:80px;border:2px dashed var(--rule);border-radius:6px;
+    background:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:3px;color:var(--muted);font-size:11px;font-family:monospace;
+    position:relative;transition:border-color .15s,background .15s}
+  .add-more-btn:hover{border-color:var(--food);background:var(--food-bg);color:var(--food)}
+  .add-more-btn input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+
+  /* spinner */
+  @keyframes rspin{to{transform:rotate(360deg)}}
+  .spin{animation:rspin .75s linear infinite;display:inline-block}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div style="display:flex;align-items:center">
+      <h1>Recipe Registry</h1>
+      <span class="count" id="count-label"></span>
+    </div>
+    <button class="btn btn-ghost btn-sm" id="export-btn" style="display:none" onclick="exportXLSX()">↓ Export</button>
+  </div>
+
+  <div id="main">
+    <div class="max">
+      <!-- Stats -->
+      <div class="stats" id="stats-strip" style="display:none">
+        <div class="stat"><div class="stat-val" id="stat-total">0</div><div class="stat-lbl">Total</div></div>
+        <div class="stat"><div class="stat-val" style="color:var(--food)" id="stat-food">0</div><div class="stat-lbl">Food</div></div>
+        <div class="stat"><div class="stat-val" style="color:var(--bev)" id="stat-bev">0</div><div class="stat-lbl">Beverages</div></div>
+      </div>
+
+      <!-- Add card -->
+      <div class="card">
+        <!-- Source tabs -->
+        <div class="src-tabs">
+          <button class="src-tab on" id="tab-url" onclick="switchTab('url')">🔗 Video URL</button>
+          <button class="src-tab" id="tab-photo" onclick="switchTab('photo')">📷 Photo</button>
+        </div>
+
+        <!-- Category toggle (shared) -->
+        <div class="cat-toggle">
+          <button class="cat-btn active-food" id="cat-food" onclick="setCategory('Food')">🍽 Food</button>
+          <button class="cat-btn" id="cat-bev" onclick="setCategory('Beverage')">🥂 Beverage</button>
+        </div>
+
+        <!-- Custom name (shared) -->
+        <div class="name-field">
+          <label for="name-input">Recipe name <span style="color:var(--muted);font-weight:400">(optional — auto-detected if blank)</span></label>
+          <input id="name-input" type="text" placeholder="e.g. Grandma's Lasagna"/>
+        </div>
+
+        <!-- URL panel -->
+        <div id="panel-url">
+          <div class="input-row">
+            <input id="url-input" type="url" placeholder="Paste a YouTube, TikTok, Facebook, or Instagram URL…"
+              onkeydown="if(event.key==='Enter')addRecipe()"/>
+            <button class="btn btn-food" id="add-btn" onclick="addRecipe()">Add →</button>
+          </div>
+          <!-- Manual fallback panel -->
+          <div class="manual-panel" id="manual-panel" style="display:none">
+            <p id="manual-prompt"></p>
+            <textarea id="manual-text" placeholder="Paste recipe description, caption, or comments here…"></textarea>
+            <div class="btn-row">
+              <button class="btn btn-food" id="manual-submit-btn" onclick="submitManual()">Extract Recipe →</button>
+              <button class="btn btn-ghost btn-sm" onclick="skipRecipe()">Skip — save link only</button>
+              <button class="btn btn-text btn-sm" onclick="cancelManual()">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Photo panel -->
+        <div id="panel-photo" style="display:none">
+          <!-- Drop zone (hidden once photos added) -->
+          <div class="drop-zone" id="drop-zone"
+            ondragover="event.preventDefault();this.classList.add('over')"
+            ondragleave="this.classList.remove('over')"
+            ondrop="handleDrop(event)">
+            <input type="file" accept="image/*" multiple id="photo-input" onchange="handlePhotoSelect(event)"/>
+            <div class="dz-icon">📸</div>
+            <div class="dz-label">Tap to choose photos<br/>or drag &amp; drop images</div>
+            <div class="dz-sub">Add multiple photos — e.g. ingredients on one page, directions on another</div>
+          </div>
+          <!-- Thumbnail strip (shown once photos added) -->
+          <div id="photo-strip" style="display:none">
+            <div class="photo-strip" id="thumb-strip"></div>
+            <div style="font-size:11px;color:var(--muted);font-family:monospace;margin-bottom:10px" id="photo-count-label"></div>
+          </div>
+          <button class="btn btn-food" id="photo-btn" onclick="addFromPhoto()" style="display:none;width:100%;justify-content:center">
+            Extract Recipe from Photos →
+          </button>
+        </div>
+
+        <div class="err" id="add-err" style="display:none"></div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="filter-bar" id="filter-bar" style="display:none">
+        <div class="filter-toggle">
+          <button class="filter-btn on" data-f="All" onclick="setFilter('All')">All</button>
+          <button class="filter-btn" data-f="Food" onclick="setFilter('Food')">🍽 Food</button>
+          <button class="filter-btn" data-f="Beverage" onclick="setFilter('Beverage')">🥂 Bev</button>
+        </div>
+        <input type="search" id="search-input" placeholder="Search by name…" oninput="renderList()"/>
+      </div>
+
+      <!-- Empty state -->
+      <div class="empty" id="empty-state">
+        <div class="icon">🍽</div>
+        <p>Your registry is empty.<br/>Paste a video URL or upload a photo to get started.</p>
+      </div>
+
+      <!-- Recipe list -->
+      <div id="recipe-list"></div>
+    </div>
+  </div>
+
+  <div id="install-bar" onclick="installApp()">
+    📲 Add to Home Screen for the best experience — tap here
+  </div>
+</div>
+
+<!-- Drawer -->
+<div id="overlay" onclick="closeDrawer(event)">
+  <div id="drawer">
+    <div class="drawer-top">
+      <span class="pill" id="d-pill"></span>
+      <button onclick="closeDrawer()" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer;line-height:1">×</button>
+    </div>
+    <h2 class="drawer-title" id="d-name"></h2>
+    <div class="drawer-link-row">
+      <a class="drawer-link" id="d-link" href="#" target="_blank" rel="noreferrer">↗ Watch video</a>
+      <div class="drawer-url" id="d-url"></div>
+    </div>
+    <div class="drawer-hr"></div>
+    <div id="d-body"></div>
+    <button class="btn btn-danger btn-sm" style="margin-top:12px" onclick="deleteSelected()">Delete recipe</button>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+const STORE_KEY = "recipe-registry-v1";
+let registry = [];
+let currentCategory = "Food";
+let currentFilter = "All";
+let currentManual = null;
+let selectedId = null;
+let deferredInstall = null;
+let isBusy = false;
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(registry)); } catch(e){} }
+function load() {
+  try { const d = localStorage.getItem(STORE_KEY); if(d) registry = JSON.parse(d); }
+  catch(e){ registry = []; }
+}
+
+// ── YouTube ───────────────────────────────────────────────────────────────────
+function ytId(url) {
+  const m = url.match(/(?:v=|youtu\.be\/|shorts\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+async function fetchYT(id) {
+  let oembed = {};
+  try {
+    const r = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`);
+    if(r.ok) oembed = await r.json();
+  } catch(_){}
+  let transcript = "";
+  try {
+    const r = await fetch(`https://youtubetranscript.com/?server_vid2=${id}`);
+    if(r.ok){
+      const xml = await r.text();
+      transcript = [...xml.matchAll(/<text[^>]*>([\s\S]*?)<\/text>/g)]
+        .map(m=>m[1].replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&#39;/g,"'").replace(/&quot;/g,'"'))
+        .join(" ").substring(0,6000);
+    }
+  } catch(_){}
+  return { title: oembed.title||"", author: oembed.author_name||"", transcript };
+}
+
+// ── Claude ────────────────────────────────────────────────────────────────────
+async function claudeExtract({ title, author, transcript, manualText, category, customName }) {
+  const context = manualText
+    ? `The user pasted this text from the video:\n\n${manualText}`
+    : `Video title: "${title}" by ${author}\n\nTranscript:\n${transcript||"(no transcript available)"}`;
+  const nameHint = customName ? `The user wants to name this recipe: "${customName}". Use this exact name.` : "";
+  const typeHint = category === "Beverage"
+    ? "This is a beverage/drink recipe. Extract the drink name, all ingredients with quantities, and preparation steps."
+    : "This is a food recipe. Extract the dish name, all ingredients with quantities, and cooking directions.";
+
+  const prompt = `You are a recipe extraction specialist. ${typeHint} ${nameHint}
+
+${context}
+
+Respond ONLY in this exact JSON (no markdown, no extra text):
+{"name":"Recipe Name","ingredients":["1 cup flour","2 eggs"],"directions":["Step one.","Step two."],"notes":"tips or empty string"}
+
+If no recipe found: {"error":"No recipe found"}`;
+
+  const res = await fetch("https://recipe-book.troymd123.workers.dev/",{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
+      messages:[{role:"user",content:prompt}]})
+  });
+  const data = await res.json();
+  const text = (data.content||[]).map(b=>b.type==="text"?b.text:"").join("");
+  const match = text.match(/\{[\s\S]*\}/);
+  if(!match) throw new Error("Could not parse response");
+  return JSON.parse(match[0]);
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+let currentTab = "url";
+let photos = []; // array of {base64, mime, dataUrl}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById("tab-url").classList.toggle("on", tab==="url");
+  document.getElementById("tab-photo").classList.toggle("on", tab==="photo");
+  document.getElementById("panel-url").style.display   = tab==="url"   ? "block" : "none";
+  document.getElementById("panel-photo").style.display = tab==="photo" ? "block" : "none";
+  hideErr();
+}
+
+// ── Photo handling ────────────────────────────────────────────────────────────
+function handlePhotoSelect(e) {
+  const files = Array.from(e.target.files);
+  files.forEach(f => { if(f.type.startsWith("image/")) queuePhoto(f); });
+  e.target.value = ""; // reset so same file can be re-added
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById("drop-zone").classList.remove("over");
+  Array.from(e.dataTransfer.files).forEach(f => { if(f.type.startsWith("image/")) queuePhoto(f); });
+}
+function queuePhoto(file) {
+  const reader = new FileReader();
+  reader.onload = ev => {
+    photos.push({ base64: ev.target.result.split(",")[1], mime: file.type||"image/jpeg", dataUrl: ev.target.result });
+    renderPhotoStrip();
+  };
+  reader.readAsDataURL(file);
+}
+function removePhoto(idx) {
+  photos.splice(idx, 1);
+  renderPhotoStrip();
+}
+function renderPhotoStrip() {
+  const hasPhotos = photos.length > 0;
+  document.getElementById("drop-zone").style.display    = hasPhotos ? "none" : "block";
+  document.getElementById("photo-strip").style.display  = hasPhotos ? "block" : "none";
+  document.getElementById("photo-btn").style.display    = hasPhotos ? "flex" : "none";
+
+  const strip = document.getElementById("thumb-strip");
+  strip.innerHTML = "";
+  photos.forEach((p, i) => {
+    const thumb = document.createElement("div");
+    thumb.className = "photo-thumb";
+    thumb.innerHTML = `
+      <img src="${p.dataUrl}" alt="Photo ${i+1}"/>
+      <button class="thumb-remove" onclick="removePhoto(${i})" title="Remove">×</button>
+      <span class="thumb-num">${i+1}</span>`;
+    strip.appendChild(thumb);
+  });
+  // "Add more" button
+  if(hasPhotos) {
+    const addMore = document.createElement("button");
+    addMore.className = "add-more-btn";
+    addMore.title = "Add more photos";
+    addMore.innerHTML = `<input type="file" accept="image/*" multiple onchange="handlePhotoSelect(event)"/><span style="font-size:20px">+</span><span>Add more</span>`;
+    strip.appendChild(addMore);
+  }
+
+  const lbl = document.getElementById("photo-count-label");
+  lbl.textContent = photos.length === 1 ? "1 photo added" : `${photos.length} photos — Claude will read all of them together`;
+  document.getElementById("photo-btn").textContent = photos.length === 1
+    ? "Extract Recipe from Photo →"
+    : `Extract Recipe from ${photos.length} Photos →`;
+}
+function clearPhotos() {
+  photos = [];
+  document.getElementById("photo-input").value = "";
+  renderPhotoStrip();
+}
+
+async function addFromPhoto() {
+  if(isBusy || !photos.length) return;
+  const customName = document.getElementById("name-input").value.trim();
+  const photoCount = photos.length;
+  hideErr(); setBusy(true);
+  document.getElementById("photo-btn").textContent = "⏳ Reading photos…";
+  try {
+    const recipe = await claudeExtractFromImages(photos, currentCategory, customName);
+    if(recipe.error) throw new Error(recipe.error);
+    commitPhoto(photoCount, currentCategory, recipe, customName);
+    clearPhotos();
+    document.getElementById("name-input").value = "";
+  } catch(e) { showErr(e.message); }
+  setBusy(false);
+  renderPhotoStrip();
+}
+
+async function claudeExtractFromImages(photoList, category, customName) {
+  const nameHint = customName ? `The user wants to name this recipe: "${customName}". Use this exact name.` : "";
+  const typeHint = category === "Beverage"
+    ? "This is a beverage/drink recipe. Extract the drink name, all ingredients with quantities, and preparation steps."
+    : "This is a food recipe. Extract the dish name, all ingredients with quantities, and cooking directions.";
+
+  const countNote = photoList.length > 1
+    ? `There are ${photoList.length} images. They may show different parts of the same recipe (e.g. ingredients list on one page, directions on another). Combine all information into a single complete recipe.`
+    : "There is 1 image.";
+
+  const prompt = `You are a recipe extraction specialist. ${typeHint} ${nameHint}
+
+${countNote} Each image may be a recipe card, cookbook page, handwritten note, screenshot, or any other source.
+
+Extract all recipe information across ALL images and respond ONLY in this exact JSON (no markdown, no extra text):
+{"name":"Recipe Name","ingredients":["1 cup flour","2 eggs"],"directions":["Step one.","Step two."],"notes":"tips or empty string"}
+
+If no recipe is visible in any image: {"error":"No recipe found in images"}`;
+
+  // Build content array: all images first, then the prompt text
+  const content = [
+    ...photoList.map(p => ({ type:"image", source:{ type:"base64", media_type: p.mime, data: p.base64 }})),
+    { type:"text", text: prompt }
+  ];
+
+  const res = await fetch("https://recipe-book.troymd123.workers.dev/", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1500,
+      messages: [{ role:"user", content }]
+    })
+  });
+  const data = await res.json();
+  const text = (data.content||[]).map(b=>b.type==="text"?b.text:"").join("");
+  const match = text.match(/\{[\s\S]*\}/);
+  if(!match) throw new Error("Could not parse response");
+  return JSON.parse(match[0]);
+}
+
+// ── Add flow ──────────────────────────────────────────────────────────────────
+async function addRecipe() {
+  if(isBusy) return;
+  const url = document.getElementById("url-input").value.trim();
+  const customName = document.getElementById("name-input").value.trim();
+  if(!url){ showErr("Please enter a URL."); return; }
+  hideErr(); setBusy(true);
+
+  const id = ytId(url);
+  try {
+    if(id){
+      setAddBtnText("⏳ Fetching…");
+      const yt = await fetchYT(id);
+      setAddBtnText("⏳ Extracting…");
+      if(yt.transcript || yt.title){
+        const recipe = await claudeExtract({...yt, category:currentCategory, customName});
+        if(recipe.error){
+          showManual(url, customName, "Couldn't find the recipe in the transcript. Paste the description or pinned comment:");
+        } else {
+          commit(url, currentCategory, recipe, customName);
+        }
+      } else {
+        showManual(url, customName, "No transcript found. Paste the recipe from the description or comments:");
+      }
+    } else {
+      showManual(url, customName, "Facebook, TikTok & Instagram can't be read directly. Paste the recipe from the caption or comments:");
+    }
+  } catch(e){ showErr(e.message); }
+  setBusy(false);
+}
+
+async function submitManual() {
+  if(isBusy || !currentManual) return;
+  const text = document.getElementById("manual-text").value.trim();
+  if(!text){ return; }
+  setBusy(true);
+  setManualBtnText("⏳ Extracting…");
+  try {
+    const recipe = await claudeExtract({manualText:text, category:currentManual.category, customName:currentManual.customName});
+    if(recipe.error) throw new Error("No recipe found in the pasted text.");
+    commit(currentManual.url, currentManual.category, recipe, currentManual.customName);
+    hideManual();
+  } catch(e){ showErr(e.message); }
+  setBusy(false);
+  setManualBtnText("Extract Recipe →");
+}
+
+function skipRecipe() {
+  if(!currentManual) return;
+  const name = currentManual.customName || shortenUrl(currentManual.url);
+  commit(currentManual.url, currentManual.category,
+    {name, ingredients:[], directions:[], notes:"Recipe not yet added — see video link."}, currentManual.customName);
+  hideManual();
+}
+
+function commitPhoto(photoCount, category, recipe, customName) {
+  const entry = {
+    id: Date.now(),
+    url: "photo://local",
+    photoCount,
+    category,
+    name: customName || recipe.name,
+    ingredients: recipe.ingredients || [],
+    directions:  recipe.directions  || [],
+    notes:       recipe.notes       || "",
+    addedAt:     new Date().toISOString(),
+  };
+  registry.unshift(entry);
+  save();
+  renderAll();
+}
+
+function commit(url, category, recipe, customName) {
+  const entry = {
+    id: Date.now(),
+    url, category,
+    name: customName || recipe.name,
+    ingredients: recipe.ingredients || [],
+    directions:  recipe.directions  || [],
+    notes:       recipe.notes       || "",
+    addedAt:     new Date().toISOString(),
+  };
+  registry.unshift(entry);
+  save();
+  document.getElementById("url-input").value = "";
+  document.getElementById("name-input").value = "";
+  renderAll();
+}
+
+function showManual(url, customName, prompt) {
+  currentManual = {url, customName, category:currentCategory};
+  document.getElementById("manual-prompt").textContent = prompt;
+  document.getElementById("manual-text").value = "";
+  document.getElementById("manual-panel").style.display = "block";
+  document.getElementById("manual-text").focus();
+}
+function hideManual() {
+  currentManual = null;
+  document.getElementById("manual-panel").style.display = "none";
+  document.getElementById("manual-text").value = "";
+}
+function cancelManual() {
+  hideManual();
+  document.getElementById("url-input").value = "";
+  document.getElementById("name-input").value = "";
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function setBusy(v) {
+  isBusy = v;
+  document.getElementById("add-btn").disabled = v;
+  document.getElementById("url-input").disabled = v;
+  const pb = document.getElementById("photo-btn");
+  if(pb) pb.disabled = v;
+  if(!v) setAddBtnText("Add →");
+}
+function setAddBtnText(t){ document.getElementById("add-btn").textContent = t; }
+function setManualBtnText(t){ document.getElementById("manual-submit-btn").textContent = t; }
+function showErr(msg){ const e=document.getElementById("add-err"); e.textContent="✗ "+msg; e.style.display="block"; }
+function hideErr(){ document.getElementById("add-err").style.display="none"; }
+function shortenUrl(u){ return u.length>45 ? u.substring(0,45)+"…" : u; }
+
+function setCategory(c) {
+  currentCategory = c;
+  document.getElementById("cat-food").className = "cat-btn" + (c==="Food"?" active-food":"");
+  document.getElementById("cat-bev").className  = "cat-btn" + (c==="Beverage"?" active-bev":"");
+  document.getElementById("add-btn").className  = "btn " + (c==="Food"?"btn-food":"btn-bev");
+  // update manual submit button color too
+  document.getElementById("manual-submit-btn").className = "btn " + (c==="Food"?"btn-food":"btn-bev");
+}
+
+function setFilter(f) {
+  currentFilter = f;
+  document.querySelectorAll(".filter-btn").forEach(b => b.classList.toggle("on", b.dataset.f === f));
+  renderList();
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderAll() {
+  const n = registry.length;
+  const foods = registry.filter(r=>r.category==="Food").length;
+  const bevs  = registry.filter(r=>r.category==="Beverage").length;
+
+  document.getElementById("count-label").textContent = n ? `${n} saved` : "";
+  document.getElementById("export-btn").style.display = n ? "inline-flex" : "none";
+  document.getElementById("stats-strip").style.display = n ? "flex" : "none";
+  document.getElementById("filter-bar").style.display  = n ? "flex" : "none";
+  document.getElementById("stat-total").textContent = n;
+  document.getElementById("stat-food").textContent  = foods;
+  document.getElementById("stat-bev").textContent   = bevs;
+  renderList();
+}
+
+function renderList() {
+  const search = (document.getElementById("search-input")?.value||"").toLowerCase();
+  const shown = registry
+    .filter(r => currentFilter==="All" || r.category===currentFilter)
+    .filter(r => !search || r.name.toLowerCase().includes(search));
+
+  document.getElementById("empty-state").style.display = registry.length===0 ? "block" : "none";
+
+  const list = document.getElementById("recipe-list");
+  list.innerHTML = "";
+
+  if(shown.length===0 && registry.length>0){
+    list.innerHTML = '<p style="text-align:center;color:var(--muted);font-size:14px;padding-top:20px">No recipes match your filter.</p>';
+    return;
+  }
+
+  shown.forEach(r => {
+    const div = document.createElement("div");
+    div.className = "recipe-row";
+    div.style.borderLeft = `3px solid ${r.category==="Food"?"var(--food)":"var(--bev)"}`;
+    const hasRecipe = r.ingredients.length > 0;
+    const metaText = hasRecipe
+      ? `${r.ingredients.length} ingredients · ${r.directions.length} steps`
+      : `<span style="color:var(--yellow)">Link saved — no recipe yet</span>`;
+    const isPhoto = r.url === "photo://local";
+    const photoLabel = isPhoto
+      ? (r.photoCount > 1 ? `📷 ${r.photoCount} photos` : "📷 Added from photo")
+      : null;
+    const shortUrl = isPhoto ? null : (r.url.length > 50 ? r.url.substring(0,50)+"…" : r.url);
+    const linkHtml = isPhoto
+      ? `<span class="rmeta" style="color:var(--muted);margin-top:2px">${photoLabel}</span>`
+      : `<a class="rlink" href="${esc(r.url)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">↗ ${esc(shortUrl)}</a>`;
+    const pillClass = r.category==="Food" ? "pill pill-food" : "pill pill-bev";
+    const pillLabel = r.category==="Food" ? "🍽 Food" : "🥂 Beverage";
+    const dateStr = new Date(r.addedAt).toLocaleDateString();
+    div.innerHTML = `
+      <div class="left">
+        <div class="pill-row">
+          <span class="${pillClass}">${pillLabel}</span>
+          <span style="font-size:11px;color:var(--muted);font-family:monospace">${dateStr}</span>
+        </div>
+        <div class="rname">${esc(r.name)}</div>
+        <div class="rmeta">${metaText}</div>
+        ${linkHtml}
+      </div>
+      <span class="arrow">›</span>`;
+    div.addEventListener("click", ()=>openDrawer(r.id));
+    list.appendChild(div);
+  });
+}
+
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+// ── Drawer ────────────────────────────────────────────────────────────────────
+function openDrawer(id) {
+  selectedId = id;
+  const r = registry.find(x=>x.id===id);
+  if(!r) return;
+
+  const isPhoto = r.url === "photo://local";
+  const photoLabel = isPhoto
+    ? (r.photoCount > 1 ? `📷 Added from ${r.photoCount} photos` : "📷 Added from photo")
+    : null;
+  document.getElementById("d-pill").className = r.category==="Food"?"pill pill-food":"pill pill-bev";
+  document.getElementById("d-pill").textContent = r.category==="Food"?"🍽 Food":"🥂 Beverage";
+  document.getElementById("d-name").textContent = r.name;
+  document.getElementById("d-link").href = r.url;
+  document.getElementById("d-link").textContent = isPhoto ? photoLabel : "↗ Watch video";
+  document.getElementById("d-link").style.pointerEvents = isPhoto ? "none" : "auto";
+  document.getElementById("d-link").style.color = isPhoto ? "var(--muted)" : "";
+  document.getElementById("d-link").style.borderBottomColor = isPhoto ? "transparent" : "";
+  document.getElementById("d-url").textContent = isPhoto
+    ? (r.photoCount > 1 ? `Transcribed from ${r.photoCount} uploaded images` : "Transcribed from uploaded image")
+    : r.url;
+
+  const body = document.getElementById("d-body");
+  if(!r.ingredients.length && !r.directions.length){
+    body.innerHTML = `<div class="link-only-box"><div class="icon">📎</div>
+      <p>No recipe saved yet — just the link.<br><span style="font-size:12px">Visit the video to find the recipe, then delete and re-add with text.</span></p></div>`;
+  } else {
+    const ings = r.ingredients.map(i=>`<li><span class="dot">•</span>${esc(i)}</li>`).join("");
+    const dirs = r.directions.map((d,i)=>`<li><span class="num">${i+1}.</span>${esc(d)}</li>`).join("");
+    const notes = r.notes ? `<div class="drawer-section" style="margin-top:4px">Notes</div><p class="notes-text">${esc(r.notes)}</p>` : "";
+    body.innerHTML = `
+      <div class="drawer-section">Ingredients</div>
+      <ul class="ing-list">${ings}</ul>
+      <div class="drawer-section">Directions</div>
+      <ol class="dir-list">${dirs}</ol>
+      ${notes}`;
+  }
+
+  document.getElementById("overlay").classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function closeDrawer(e) {
+  if(e && e.target !== document.getElementById("overlay")) return;
+  document.getElementById("overlay").classList.remove("open");
+  document.body.style.overflow = "";
+  selectedId = null;
+}
+
+function deleteSelected() {
+  if(selectedId == null) return;
+  registry = registry.filter(r=>r.id!==selectedId);
+  save(); renderAll();
+  document.getElementById("overlay").classList.remove("open");
+  document.body.style.overflow = "";
+  selectedId = null;
+}
+
+// ── Export ────────────────────────────────────────────────────────────────────
+function exportXLSX() {
+  if(!window.XLSX){ alert("XLSX library not loaded."); return; }
+  const wb = XLSX.utils.book_new();
+  const foods = registry.filter(r=>r.category==="Food");
+  const bevs  = registry.filter(r=>r.category==="Beverage");
+
+  function addSheet(list, label) {
+    if(!list.length) return;
+    const rows = [["#","Name","Category","Source URL","Ingredients","Steps"],
+      ...list.map((r,i)=>[i+1,r.name,r.category,r.url,r.ingredients.length,r.directions.length])];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"]=[{wch:4},{wch:30},{wch:12},{wch:40},{wch:13},{wch:7}];
+    XLSX.utils.book_append_sheet(wb,ws,label);
+  }
+  addSheet(registry,"All Recipes");
+  if(foods.length) addSheet(foods,"Food");
+  if(bevs.length)  addSheet(bevs,"Beverages");
+
+  const used = new Set(["All Recipes","Food","Beverages"]);
+  registry.forEach(r=>{
+    const rows=[
+      [r.name],[`Category: ${r.category}`],[`Source: ${r.url === "photo://local" ? "Uploaded photo" : r.url}`],[],
+      ["INGREDIENTS"],...r.ingredients.map(x=>[`  • ${x}`]),
+      [],["DIRECTIONS"],...r.directions.map((x,i)=>[`  ${i+1}.  ${x}`]),
+      ...(r.notes?[[],["NOTES"],[`  ${r.notes}`]]:[]),
+    ];
+    const ws=XLSX.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:64}];
+    let n=r.name.replace(/[\/\\?*[\]:]/g,"").substring(0,28).trim()||`Recipe-${r.id}`;
+    let c=n,k=2; while(used.has(c))c=`${n} ${k++}`; used.add(c);
+    XLSX.utils.book_append_sheet(wb,ws,c);
+  });
+  XLSX.writeFile(wb,"recipe-registry.xlsx");
+}
+
+// ── PWA install ───────────────────────────────────────────────────────────────
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault(); deferredInstall = e;
+  document.getElementById("install-bar").style.display = "block";
+});
+function installApp() {
+  if(!deferredInstall) return;
+  deferredInstall.prompt();
+  deferredInstall.userChoice.then(()=>{ document.getElementById("install-bar").style.display="none"; });
+}
+window.addEventListener("appinstalled", ()=>{ document.getElementById("install-bar").style.display="none"; });
+
+// ── Service worker (offline support) ─────────────────────────────────────────
+if("serviceWorker" in navigator){
+  const swCode = `
+    const CACHE = "recipe-registry-v1";
+    self.addEventListener("install", e => {
+      e.waitUntil(caches.open(CACHE).then(c => c.addAll(["./"])));
+    });
+    self.addEventListener("fetch", e => {
+      e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+    });
+  `;
+  const swBlob = new Blob([swCode],{type:"text/javascript"});
+  navigator.serviceWorker.register(URL.createObjectURL(swBlob),{scope:"./"}).catch(()=>{});
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+load();
+renderAll();
+</script>
+</body>
+</html>
