@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="robots" content="noindex, nofollow"/>
+<title>Recipe Registry Admin</title>
+<style>
+:root{--bg:#F6F4EF;--surface:#fff;--ink:#1D2125;--muted:#667085;--line:#E7E3DA;--line-strong:#CFC9BC;--primary:#2D4A3E;--primary-ink:#fff;--danger:#B42318;--danger-soft:#FEF3F2;--danger-line:#FECDCA;--warn:#9A6700;--ok:#1E7A4C;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#141614;--surface:#1C1F1D;--ink:#ECEDEA;--muted:#9AA19C;--line:#2C302D;--line-strong:#3E433F;--primary:#7FB69C;--primary-ink:#0F1A15;--danger:#F97066;--danger-soft:#2A1513;--danger-line:#5A2420;--warn:#E0B341;--ok:#5BC68F;color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{padding:calc(14px + env(safe-area-inset-top,0px)) 18px 12px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px}
+header h1{font:600 20px Georgia,serif;margin:0}
+a{color:var(--primary)}
+main{max-width:760px;margin:0 auto;padding:18px 16px calc(40px + env(safe-area-inset-bottom,0px))}
+h2{font:600 19px Georgia,serif;margin:0 0 4px;word-break:break-word}
+h3{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 14px}
+.sub{color:var(--muted);font-size:14px;margin:2px 0}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--danger-soft);color:var(--danger);border:1px solid var(--danger-line);vertical-align:middle;margin-left:6px}
+details{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:0 0 8px;background:var(--bg)}
+summary{cursor:pointer;font-weight:600;font-size:15px}
+details h4{margin:12px 0 4px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+details ul,details ol{margin:4px 0 0;padding-left:20px}
+.cleared{opacity:.6}
+.rep{border-left:3px solid var(--line-strong);padding:2px 0 2px 10px;margin:6px 0}
+.kind{font-size:12px;font-weight:700;color:var(--warn);text-transform:uppercase;letter-spacing:.04em}
+textarea{width:100%;font:inherit;padding:10px;border:1.5px solid var(--line-strong);border-radius:10px;background:var(--surface);color:var(--ink);margin:6px 0 10px}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+button{font:inherit;font-weight:600;border-radius:10px;padding:10px 14px;border:1.5px solid var(--line-strong);background:var(--surface);color:var(--ink);cursor:pointer}
+button.primary{background:var(--primary);color:var(--primary-ink);border-color:var(--primary)}
+button.danger{color:var(--danger)}
+button:disabled{opacity:.5;cursor:wait}
+.err{color:var(--danger)}
+.empty{text-align:center;color:var(--muted);padding:26px 0}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top;word-break:break-word}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;max-width:90vw}
+</style>
+</head>
+<body>
+<header><a href="./" id="home">← Recipe Registry</a><h1>Admin</h1></header>
+<main id="main"><p class="empty" id="msg">Loading…</p></main>
+<div id="toast" hidden></div>
+<script>
+const SUPABASE_URL="https://npkxugluwtdwvxhqqjig.supabase.co";
+const SUPABASE_KEY="sb_publishable_PUHqerFAv_vn2PdlA_Nk6Q_8DGAP-D_";
+const API_URL="https://recipe-api.troymd123.workers.dev/";
+const SESSION_KEY="rr-session-v2";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=d=>{try{return new Date(d).toLocaleString(undefined,{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});}catch(_){return d||"";}};
+const day=d=>{try{return new Date(d).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch(_){return d||"";}};
+const KINDS={spam:"Spam or advertising",inappropriate:"Offensive or inappropriate",copyright:"Copyright",other:"Other"};
+let session=null,data=null;
+function toast(t){const e=$("toast");e.textContent=t;e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>e.hidden=true,3500);}
+try{session=JSON.parse(localStorage.getItem(SESSION_KEY)||"null");}catch(_){}
+async function token(){
+  if(!session||!session.access_token)throw new Error("signin");
+  if((session.expires_at||0)-60<Date.now()/1000){
+    const res=await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,{method:"POST",headers:{apikey:SUPABASE_KEY,"Content-Type":"application/json"},body:JSON.stringify({refresh_token:session.refresh_token})});
+    if(!res.ok)throw new Error("signin");
+    const d=await res.json();
+    session={access_token:d.access_token,refresh_token:d.refresh_token,expires_at:d.expires_at||Math.floor(Date.now()/1000)+(d.expires_in||3600),email:(d.user&&d.user.email)||session.email||""};
+    try{localStorage.setItem(SESSION_KEY,JSON.stringify(session));}catch(_){}
+  }
+  return session.access_token;
+}
+async function rpc(fn,body){
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`,{method:"POST",headers:{apikey:SUPABASE_KEY,Authorization:"Bearer "+await token(),"Content-Type":"application/json"},body:JSON.stringify(body||{})});
+  if(!res.ok){const e=new Error("rpc");e.status=res.status;throw e;}
+  return res.status===204?null:res.json();
+}
+async function suspend(userId,on){
+  const res=await fetch(API_URL+"admin/suspend",{method:"POST",headers:{Authorization:"Bearer "+await token(),"Content-Type":"application/json"},body:JSON.stringify({user_id:userId,suspend:on})});
+  if(!res.ok){const d=await res.json().catch(()=>({}));throw new Error(d.error||"Couldn’t change that account.");}
+}
+function say(html){$("main").innerHTML=html;}
+function recipeHtml(sn){
+  if(!sn)return "";
+  const li=a=>(Array.isArray(a)?a:[]).map(x=>`<li>${esc(x)}</li>`).join("");
+  return `<h4>The recipe</h4><p class="sub">Shared as “${esc(sn.author_name)}”${sn.link_only?" (link and ingredients only)":""}${sn.source_url?` · <a href="${esc(sn.source_url)}" target="_blank" rel="noopener noreferrer">source link</a>`:""}</p><h4>Ingredients</h4><ul>${li(sn.ingredients)}</ul>${(sn.directions||[]).length?`<h4>Directions</h4><ol>${li(sn.directions)}</ol>`:""}${sn.notes?`<h4>Notes</h4><p>${esc(sn.notes)}</p>`:""}${sn.virgin_alt?`<h4>Alcohol-free version</h4><p>${esc(sn.virgin_alt)}</p>`:""}`;
+}
+function strikeHtml(s){
+  const reps=(s.reports||[]).map(r=>`<div class="rep"><span class="kind">${esc(KINDS[r.category]||r.category||"Report")}</span> · <span class="sub">${esc(fmt(r.at))}</span><br>${esc(r.reason)}</div>`).join("");
+  return `<details class="${s.counted?"":"cleared"}"><summary>${esc(fmt(s.at))} · “${esc(s.recipe_name)}”${s.counted?"":" (cleared)"} · ${(s.reports||[]).length} reports</summary><h4>What people said</h4>${reps||'<p class="sub">No reasons were recorded.</p>'}${recipeHtml(s.snapshot)}</details>`;
+}
+function lockedHtml(a){
+  const n=(a.strikes||[]).filter(s=>s.counted).length;
+  return `<article class="card" data-user="${esc(a.user_id)}">
+    <h2>${esc(a.email)}${a.suspended?'<span class="pill">sign-in suspended</span>':'<span class="pill">sharing locked</span>'}</h2>
+    <p class="sub">Feed name: ${esc(a.feed_name||"(none)")} · Locked ${esc(fmt(a.locked_at))}</p>
+    <p class="sub">${esc(a.reason||"")}</p>
+    <h3>Strikes (${n} counting, ${(a.strikes||[]).length} in total)</h3>
+    ${(a.strikes||[]).map(strikeHtml).join("")||'<p class="sub">No strikes on record.</p>'}
+    <h3>Your decision</h3>
+    <textarea rows="2" maxlength="500" data-note placeholder="Optional note for your records"></textarea>
+    <div class="row">
+      <button class="primary" data-act="unlock_clear">Unlock and clear strikes</button>
+      <button data-act="unlock_keep">Unlock, keep strikes</button>
+      <button class="danger" data-act="${a.suspended?"restore":"suspend"}">${a.suspended?"Restore sign-in":"Suspend sign-in"}</button>
+    </div>
+    <p class="sub" style="margin-top:8px">“Keep strikes” unlocks them, but one more removed recipe locks them again. Suspending also stops them signing in at all.</p>
+  </article>`;
+}
+function render(){
+  const d=data,locked=d.locked||[],recent=d.recent||[];
+  say(`<h3 style="margin-top:0">Locked accounts (${locked.length})</h3>
+    ${locked.length?locked.map(lockedHtml).join(""):'<p class="empty" id="none">No accounts are locked.</p>'}
+    <h3>Recent removals (${recent.length})</h3>
+    ${recent.length?`<div class="card" style="overflow-x:auto"><table><thead><tr><th>When</th><th>Account</th><th>Recipe</th></tr></thead><tbody>${recent.map(r=>`<tr class="${r.counted?"":"cleared"}"><td style="white-space:nowrap">${esc(day(r.created))}</td><td>${esc(r.email)}</td><td>“${esc(r.recipe_name)}” · ${r.report_count} reports${r.counted?"":" · cleared"}</td></tr>`).join("")}</tbody></table></div>`:'<p class="empty">Nothing has been removed yet.</p>'}`);
+}
+async function reload(){try{data=await rpc("admin_overview");render();}catch(e){say(`<p class="err">Couldn’t load the review list. Try again.</p>`);}}
+$("main").addEventListener("click",async ev=>{
+  const b=ev.target.closest("button[data-act]");if(!b)return;
+  const card=b.closest("article[data-user]"),user=card.dataset.user,act=b.dataset.act;
+  const acct=(data.locked||[]).find(x=>x.user_id===user)||{};
+  const msg={unlock_clear:"Unlock this account and clear its strikes?",unlock_keep:"Unlock this account but keep its strikes on record? One more removed recipe will lock it again.",suspend:"Suspend this account? They won’t be able to sign in at all until you restore it.",restore:"Let this account sign in again?"}[act];
+  if(!confirm(msg+"\n\n"+(acct.email||"")))return;
+  b.disabled=true;
+  try{
+    if(act==="suspend"||act==="restore")await suspend(user,act==="suspend");
+    else await rpc("admin_review",{p_user:user,p_action:act,p_note:card.querySelector("[data-note]").value});
+    toast(act==="suspend"?"Sign-in suspended":act==="restore"?"Sign-in restored":"Account unlocked");
+    await reload();
+  }catch(e){b.disabled=false;toast(e.message&&e.message!=="rpc"?e.message:"That didn’t work. Try again.");}
+});
+(async()=>{
+  if(!session){say('<p class="empty">Sign in to the app first, then come back to this page.<br><br><a href="./">Open Recipe Registry</a></p>');return;}
+  try{
+    const ok=await rpc("is_admin");
+    if(ok!==true){say('<p class="empty">This account isn’t an admin.<br><br><a href="./">Back to the app</a></p>');return;}
+    await reload();
+  }catch(e){
+    if(e.message==="signin")say('<p class="empty">Your sign-in expired. Open the app and sign in again, then come back.<br><br><a href="./">Open Recipe Registry</a></p>');
+    else if(e.status===404)say('<p class="empty">The safety setup hasn’t been run yet. Run <strong>feed-safety-setup.sql</strong> in Supabase first.</p>');
+    else say('<p class="err">Couldn’t reach the server. Try again.</p>');
+  }
+})();
+</script>
+</body>
+</html>
